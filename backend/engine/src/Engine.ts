@@ -27,7 +27,7 @@ export class Engine {
     });
     this.balances.set('5', {
       [QUOTE_ASSET]: { available: 1000, locked: 0 },
-      [Market.EDSC]: { available: 1000, locked: 0 },
+      [Market.ESDC]: { available: 1000, locked: 0 },
     });
     this.balances.set('2', {
       [QUOTE_ASSET]: { available: 1000, locked: 0 },
@@ -54,13 +54,13 @@ export class Engine {
           return 'No OrderBook Found';
         }
 
-        console.log('BUY', message.data.side == 'BUY');
         if (message.data.side == 'BUY') {
           let filledQty = 0;
-          //sort and stop when price > given price
+          const sortedAsks = orderBook.asks.sort(
+            (a: Order, b: Order) => a.price - b.price
+          );
           for (let i = 0; i < orderBook.asks.length; ) {
-            const order = orderBook.asks[i];
-            console.log('current ask', order);
+            const order = sortedAsks[i];
             if (order.price <= message.data.price) {
               let executedQty = Math.min(order.quantity, message.data.quantity);
               filledQty += executedQty;
@@ -77,6 +77,8 @@ export class Engine {
               } else {
                 i++;
               }
+            } else {
+              break;
             }
           }
           if (message.data.quantity > 0) {
@@ -90,8 +92,6 @@ export class Engine {
             );
           }
 
-          console.log(orderBook);
-
           return {
             userId: message.data.userId,
             fills,
@@ -101,7 +101,10 @@ export class Engine {
         if (message.data.side == 'ASK') {
           let filledQty = 0;
           for (let i = 0; i < orderBook.bids.length; ) {
-            const order = orderBook.bids[i];
+            const sortedBids = orderBook.bids.sort(
+              (a: Order, b: Order) => b.price - a.price
+            );
+            const order = sortedBids[i];
             if (order.price >= message.data.price) {
               let executedQty = Math.min(order.quantity, message.data.quantity);
               filledQty += executedQty;
@@ -118,6 +121,8 @@ export class Engine {
               } else {
                 i++;
               }
+            } else {
+              break;
             }
           }
 
@@ -131,8 +136,6 @@ export class Engine {
               )
             );
           }
-
-          console.log(orderBook);
 
           return {
             userId: message.data.userId,

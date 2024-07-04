@@ -1,5 +1,6 @@
 import { createClient } from 'redis';
 import { Engine } from './Engine';
+import { MessageTopic } from './MessageTopic';
 
 const redisClient = createClient();
 redisClient.connect();
@@ -7,8 +8,7 @@ redisClient.connect();
 async function main() {
   const engine = Engine.getInstance();
   while (true) {
-    const message = await redisClient.brPop('orders', 0);
-    console.log(message);
+    const message = await redisClient.brPop(MessageTopic.Orders, 0);
     if (message) {
       engine.process(JSON.parse(message?.element ?? ''));
     }
