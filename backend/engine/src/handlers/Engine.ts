@@ -33,6 +33,7 @@ export class Engine {
     this.balances.set('5', {
       [QUOTE_ASSET]: { available: 1000, locked: 0 },
       [Market.ESDC]: { available: 0, locked: 0 },
+      [Market.SOL]: { available: 0, locked: 0 },
     });
     this.balances.set('2', {
       [QUOTE_ASSET]: { available: 1000, locked: 0 },
@@ -50,36 +51,43 @@ export class Engine {
   process = (message: any) => {
     switch (message.type) {
       case CREATE_ORDER:
-        let orderPlaced;
+        let orderPlaced: { orderId: string; fills: any[] };
+        const order = message.data;
+
+        console.log(order, 'rder');
         this.checkAndLockFunds(
-          message.baseAsset,
-          message.quantity,
-          message.price,
-          message.userId,
-          message.side
+          order.baseAsset,
+          order.quantity,
+          order.price,
+          order.userId,
+          order.side
         );
         const orderBook = this.orderBooks.filter(
-          (x) => x.baseAsset == message.data.baseAsset
+          (x) => x.baseAsset == order.baseAsset
         )[0];
 
         if (!orderBook) {
           return 'No OrderBook Found';
         }
 
-        if (message.data.side == 'BUY') {
+        if (order.side == 'BUY') {
           orderPlaced = this.fillAsksAndPlaceBid(orderBook, message);
-        } else if (message.data.side == 'ASK') {
+        } else {
           orderPlaced = this.fillBidsAndPlaceAsk(orderBook, message);
         }
 
-        // this.updateFunds(
-        //   message.baseAsset,
-        //   message.quantity,
-        //   message.price,
-        //   message.userId,
-        //   orderPlaced?.fills[0].otherUserId,
-        //   message.side
-        // );
+        var { fills } = orderPlaced;
+
+        this.updateFunds(
+          order.baseAsset,
+          order.quantity,
+          order.price,
+          order.userId,
+          fills.length ?? 0 > 1 ? fills[0].otherUserId : '',
+          order.side
+        );
+
+        console.log('balances', this.balances);
         this.client.lPush('db-messages', JSON.stringify({ ...orderPlaced }));
         this.client.publish('ws-messages', JSON.stringify({ ...orderPlaced }));
         return orderPlaced;
@@ -203,6 +211,7 @@ export class Engine {
     side: 'ASK' | 'BUY'
   ) {
     const userBalance = this.balances.get(userId);
+    console.log(userBalance, baseAsset);
     if (side == 'BUY') {
       if (
         userBalance &&
@@ -212,7 +221,11 @@ export class Engine {
         return true;
       }
     } else {
-      if (userBalance && userBalance[baseAsset].available >= price * quantity) {
+      if (
+        userBalance &&
+        userBalance[baseAsset] &&
+        userBalance[baseAsset].available >= price * quantity
+      ) {
         userBalance[baseAsset].locked += quantity * price;
         return true;
       }
@@ -230,26 +243,38 @@ export class Engine {
   ) {
     const balance = this.balances.get(userId);
     const otherUserBalance = this.balances.get(otherUserId);
+    console.log(
+      'balance, otherUserBalance',
+      balance,
+      otherUserBalance,
+      side,
+      baseAsset
+    );
     if (side == 'BUY') {
-      if (
-        balance &&
-        otherUserBalance &&
-        balance[QUOTE_ASSET].available >= price * quantity
-      ) {
+      if (balance && balance[QUOTE_ASSET].available >= price * quantity) {
         balance[QUOTE_ASSET].available -= quantity * price;
+        balance[baseAsset].available += quantity * price;
         balance[QUOTE_ASSET].locked -= quantity * price;
-        otherUserBalance[baseAsset].available -= quantity * price;
+        console.log(balance, quantity, price);
+        if (otherUserBalance && otherUserBalance[baseAsset]) {
+          otherUserBalance[baseAsset].available -= quantity * price;
+          otherUserBalance[QUOTE_ASSET].available += quantity * price;
+        }
         return true;
       }
     } else {
       if (
         balance &&
-        otherUserBalance &&
+        balance[baseAsset] &&
         balance[baseAsset].available >= price * quantity
       ) {
         balance[baseAsset].available += quantity * price;
+        balance[QUOTE_ASSET].available -= quantity * price;
         balance[baseAsset].locked -= quantity * price;
-        otherUserBalance[QUOTE_ASSET].available += quantity * price;
+        if (otherUserBalance && otherUserBalance[baseAsset]) {
+          otherUserBalance[QUOTE_ASSET].available += quantity * price;
+          otherUserBalance[baseAsset].available -= quantity * price;
+        }
         return true;
       }
     }
