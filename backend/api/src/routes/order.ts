@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { createClient } from 'redis';
-import { Order } from '../types';
+import { MessageTopic, Order } from '../types';
 import { orderSchema } from '../schema-validations';
 
 const app = express();
@@ -26,7 +26,7 @@ app.post('/order', (req: Request, res: Response) => {
 
   const order: Order = { baseAsset, side, userId, price, quantity };
   redisClient.lPush(
-    'orders',
+    MessageTopic.ORDER,
     JSON.stringify({
       type: 'CREATE ORDER',
       data: order,

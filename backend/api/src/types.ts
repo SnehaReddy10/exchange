@@ -5,3 +5,7 @@ export type Order = {
   side: 'BUY' | 'ASK';
   quantity: number;
 };
+
+export enum MessageTopic {
+  ORDER = 'orders',
+}

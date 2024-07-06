@@ -1,5 +1,5 @@
 import { Order } from './Order';
-import { QUOTE_ASSET } from './types';
+import { QUOTE_ASSET } from '../types/types';
 
 export class OrderBook {
   bids: Order[];

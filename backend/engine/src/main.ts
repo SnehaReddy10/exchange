@@ -1,6 +1,6 @@
 import { createClient } from 'redis';
-import { Engine } from './Engine';
-import { MessageTopic } from './MessageTopic';
+import { Engine } from './handlers/Engine';
+import { MessageTopic } from './types/MessageTopic';
 
 const redisClient = createClient();
 redisClient.connect();
