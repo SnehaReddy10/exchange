@@ -12,7 +12,7 @@ redisClient.connect();
 app.post('/order', (req: Request, res: Response) => {
   const { baseAsset, price, quantity, userId, side } = req.body;
 
-  const { success, data, error } = orderSchema.safeParse({
+  const { success, error } = orderSchema.safeParse({
     baseAsset,
     price,
     quantity,

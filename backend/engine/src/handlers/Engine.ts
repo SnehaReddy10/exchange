@@ -10,7 +10,7 @@ export class Engine {
   private balances: Map<string, Balance> = new Map();
   private static instance: Engine;
   private client: RedisClientType;
-  private reverseOrderBook: Map<string, [string, number]> = new Map();
+  private reverseOrderBook: Map<string, { [key: string]: number }> = new Map();
 
   private constructor() {
     this.populateBalances();
@@ -54,7 +54,6 @@ export class Engine {
         let orderPlaced: { orderId: string; fills: any[] };
         const order = message.data;
 
-        console.log(order, 'rder');
         this.checkAndLockFunds(
           order.baseAsset,
           order.quantity,
@@ -87,9 +86,12 @@ export class Engine {
           order.side
         );
 
-        console.log('balances', this.balances);
         this.client.lPush('db-messages', JSON.stringify({ ...orderPlaced }));
-        this.client.publish('ws-messages', JSON.stringify({ ...orderPlaced }));
+
+        this.client.publish(
+          'pub-sub-messages',
+          JSON.stringify(this.reverseOrderBook.get(order.baseAsset))
+        );
         return orderPlaced;
     }
   };
@@ -140,10 +142,14 @@ export class Engine {
       );
       if (marketTotalOrders) {
         if (!marketTotalOrders[message.data.price]) {
-          marketTotalOrders[message.data.price] = 0;
+          marketTotalOrders[message.data.price] = message.data.quantity;
         } else {
           marketTotalOrders[message.data.price] += message.data.quantity;
         }
+      } else {
+        this.reverseOrderBook.set(message.data.baseAsset, {
+          [message.data.price]: message.data.quantity,
+        });
       }
     }
 
