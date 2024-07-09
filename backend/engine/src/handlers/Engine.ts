@@ -10,7 +10,7 @@ export class Engine {
   private balances: Map<string, Balance> = new Map();
   private static instance: Engine;
   private client: RedisClientType;
-  private reverseOrderBook: Map<string, { [key: string]: number }> = new Map();
+  private reverseOrderBook: any = {};
 
   private constructor() {
     this.populateBalances();
@@ -90,7 +90,7 @@ export class Engine {
 
         this.client.publish(
           'pub-sub-messages',
-          JSON.stringify(this.reverseOrderBook.get(order.baseAsset))
+          JSON.stringify(this.reverseOrderBook)
         );
         return orderPlaced;
     }
@@ -137,9 +137,7 @@ export class Engine {
           message.data.userId
         )
       );
-      const marketTotalOrders = this.reverseOrderBook.get(
-        message.data.baseAsset
-      );
+      const marketTotalOrders = this.reverseOrderBook[message.data.baseAsset];
       if (marketTotalOrders) {
         if (!marketTotalOrders[message.data.price]) {
           marketTotalOrders[message.data.price] = message.data.quantity;
@@ -147,9 +145,9 @@ export class Engine {
           marketTotalOrders[message.data.price] += message.data.quantity;
         }
       } else {
-        this.reverseOrderBook.set(message.data.baseAsset, {
+        this.reverseOrderBook[message.data.baseAsset] = {
           [message.data.price]: message.data.quantity,
-        });
+        };
       }
     }
 

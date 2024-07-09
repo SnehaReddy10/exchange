@@ -1,2 +1,2 @@
-export const SUBSCRIBE = 'SUBCRIBE';
-export const UNSUBSCRIBE = 'UNSUBCRIBE';
+export const SUBSCRIBE = 'SUBSCRIBE';
+export const UNSUBSCRIBE = 'UNSUBSCRIBE';

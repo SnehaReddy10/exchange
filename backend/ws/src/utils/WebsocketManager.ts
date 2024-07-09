@@ -57,9 +57,9 @@ export class WebsocketManager {
         const parsedMessage = JSON.parse(message);
         console.log('Received', parsedMessage);
         if (parsedMessage.type == SUBSCRIBE) {
-          this.addClient(parsedMessage.market, parsedMessage.userId, ws);
+          this.addClient(parsedMessage.market, this.id, ws);
         } else if (parsedMessage.type == UNSUBSCRIBE) {
-          this.removeClient(parsedMessage.market, parsedMessage.userId);
+          this.removeClient(parsedMessage.market, parsedMessage.id);
         }
       });
       console.log('Connection established');
@@ -68,10 +68,14 @@ export class WebsocketManager {
 
   subcribeToPubSub() {
     this.redisClient.subscribe(this.id, (message: string) => {
-      console.log('message from pubcub to websocket', message);
       const parsedMessage = JSON.parse(message);
-      this.clients.get(parsedMessage.market)?.forEach((x) => {
-        x[1].send(parsedMessage.message);
+      this.clients.get(Object.keys(parsedMessage)[0])?.forEach((x) => {
+        x[1].send(
+          JSON.stringify(parsedMessage[Object.keys(parsedMessage)[0]]),
+          {
+            binary: false,
+          }
+        );
       });
     });
   }

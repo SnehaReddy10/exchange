@@ -36,9 +36,9 @@ export class SubscriptionManager {
   publishMessage() {
     this.subcriberClient.subscribe('pub-sub-messages', (message: string) => {
       const parsedMessage = JSON.parse(message);
-      console.log('message from pub sub', parsedMessage, message);
-      console.log('subcribers', this.subscribers);
-      const websocketsConnected = this.subscribers.get(parsedMessage.market);
+      const websocketsConnected = this.subscribers.get(
+        Object.keys(parsedMessage)[0]
+      );
       if (websocketsConnected) {
         websocketsConnected.map((x: any) => {
           this.publisherClient.publish(x, JSON.stringify(parsedMessage));
