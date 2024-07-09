@@ -92,6 +92,7 @@ export class Engine {
           'pub-sub-messages',
           JSON.stringify(this.reverseOrderBook)
         );
+        this.client.publish(order.userId, 'ORDER PLACED');
         return orderPlaced;
     }
   };

@@ -10,6 +10,7 @@ export class WebsocketManager {
   private webSocketServer: WebSocketServer;
   private id: string;
   private redisClient: RedisClientType;
+  private subcribers: Map<string, WebSocket> = new Map();
 
   private constructor() {
     this.webSocketServer = new WebSocketServer({ port: 8080 });
@@ -55,6 +56,8 @@ export class WebsocketManager {
     ws.on('connection', (ws: WebSocket) => {
       ws.on('message', (message: string) => {
         const parsedMessage = JSON.parse(message);
+        this.subcribers.set(parsedMessage.userId, ws);
+        this.subcribeToClientPubsub(parsedMessage.userId);
         console.log('Received', parsedMessage);
         if (parsedMessage.type == SUBSCRIBE) {
           this.addClient(parsedMessage.market, this.id, ws);
@@ -77,6 +80,13 @@ export class WebsocketManager {
           }
         );
       });
+    });
+  }
+
+  subcribeToClientPubsub(userId: string) {
+    this.redisClient.subscribe(userId, (message: string) => {
+      const user = this.subcribers.get(userId);
+      user?.send(message, { binary: false });
     });
   }
 }
