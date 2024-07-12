@@ -6,7 +6,7 @@ import { Order } from '../types';
 
 export const orderRouter = Router();
 
-orderRouter.post('/order', async (req: Request, res: Response) => {
+orderRouter.post('/', async (req: Request, res: Response) => {
   const { market, price, quantity, userId, side } = req.body;
 
   const { success, error } = orderSchema.safeParse({
@@ -23,7 +23,6 @@ orderRouter.post('/order', async (req: Request, res: Response) => {
 
   const order: Order = { market, side, userId, price, quantity };
 
-  console.log('create order');
   const response = await RedisManager.getInstance().sendAndAwait({
     type: CREATE_ORDER,
     payload: order,

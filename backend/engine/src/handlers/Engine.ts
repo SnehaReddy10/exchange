@@ -91,17 +91,18 @@ export class Engine {
           );
           this.client.publish(
             message.payload.userId,
-            JSON.stringify({ payload: 'ORDER CANCELLED' })
+            JSON.stringify({ payload: { messgae: 'ORDER CANCELLED' } })
           );
         } else {
           this.client.publish(
             message.payload.userId,
 
-            JSON.stringify({ payload: 'ORDER CANCEL FAILED' })
+            JSON.stringify({ payload: { message: 'ORDER CANCEL FAILED' } })
           );
         }
         break;
       default:
+        console.log('default block');
     }
   };
 
@@ -373,6 +374,7 @@ export class Engine {
     } else {
       return false;
     }
+    return false;
   }
 }
 
