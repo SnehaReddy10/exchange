@@ -1,3 +1,3 @@
 export enum MessageTopic {
-  Orders = 'orders',
+  Order = 'order',
 }

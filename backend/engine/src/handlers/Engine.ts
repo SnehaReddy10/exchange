@@ -2,15 +2,16 @@ import { Balance } from '../types/Balance';
 import { Market } from '../types/Market';
 import { Order } from './Order';
 import { OrderBook } from './OrderBook';
-import { CREATE_ORDER, QUOTE_ASSET } from '../types/types';
+import { CREATE_ORDER, ORDER_CANCEL, QUOTE_ASSET } from '../types/types';
 import { RedisClientType, createClient } from 'redis';
+import { ReverseOrderBook } from '../types/ReverseOrderBook';
 
 export class Engine {
   private orderBooks: OrderBook[] = [];
   private balances: Map<string, Balance> = new Map();
   private static instance: Engine;
   private client: RedisClientType;
-  private reverseOrderBook: any = {};
+  private reverseOrderBook: ReverseOrderBook = {};
 
   private constructor() {
     this.populateBalances();
@@ -51,56 +52,119 @@ export class Engine {
   process = (message: any) => {
     switch (message.type) {
       case CREATE_ORDER:
-        let orderPlaced: { orderId: string; fills: any[] };
-        const order = message.data;
-
-        this.checkAndLockFunds(
-          order.baseAsset,
-          order.quantity,
-          order.price,
-          order.userId,
-          order.side
-        );
-        const orderBook = this.orderBooks.filter(
-          (x) => x.baseAsset == order.baseAsset
-        )[0];
-
-        if (!orderBook) {
-          return 'No OrderBook Found';
-        }
-
-        if (order.side == 'BUY') {
-          orderPlaced = this.fillAsksAndPlaceBid(orderBook, message);
-        } else {
-          orderPlaced = this.fillBidsAndPlaceAsk(orderBook, message);
-        }
-
-        var { fills } = orderPlaced;
-
-        this.updateFunds(
-          order.baseAsset,
-          order.quantity,
-          order.price,
-          order.userId,
-          fills.length ?? 0 > 1 ? fills[0].otherUserId : '',
-          order.side
+        const { orderId, executedQty, fills } = this.createOrder(
+          message.payload.market,
+          message.payload.quantity,
+          message.payload.price,
+          message.payload.userId,
+          message.payload.side
         );
 
-        this.client.lPush('db-messages', JSON.stringify({ ...orderPlaced }));
+        this.client.lPush(
+          'db-messages',
+          JSON.stringify({ orderId, executedQty, fills })
+        );
 
         this.client.publish(
           'pub-sub-messages',
           JSON.stringify(this.reverseOrderBook)
         );
-        this.client.publish(order.userId, 'ORDER PLACED');
-        return orderPlaced;
+        this.client.publish(
+          message.payload.userId,
+          JSON.stringify({ payload: { orderId, executedQty, fills } })
+        );
+        break;
+      case ORDER_CANCEL:
+        const res = this.cancelOrder(
+          message.payload.orderId,
+          message.payload.market
+        );
+
+        if (res) {
+          this.client.lPush(
+            'db-messages',
+            JSON.stringify({ order: message.payload.orderId })
+          );
+          this.client.publish(
+            'pub-sub-messages',
+            JSON.stringify(this.reverseOrderBook)
+          );
+          this.client.publish(
+            message.payload.userId,
+            JSON.stringify({ payload: 'ORDER CANCELLED' })
+          );
+        } else {
+          this.client.publish(
+            message.payload.userId,
+
+            JSON.stringify({ payload: 'ORDER CANCEL FAILED' })
+          );
+        }
+        break;
+      default:
     }
   };
 
+  createOrder(
+    market: string,
+    quantity: number,
+    price: number,
+    userId: string,
+    side: 'BUY' | 'ASK'
+  ) {
+    let orderPlaced: { orderId: string; fills: any[]; executedQty: number };
+
+    const orderBook = this.orderBooks.find((x) => x.ticker() == market);
+
+    if (!orderBook) {
+      throw new Error('No order found');
+    }
+    const baseAsset = market.split('_')[0];
+    const quoteAsset = market.split('_')[1];
+
+    this.checkAndLockFunds(baseAsset, quantity, price, userId, side);
+
+    if (side == 'BUY') {
+      orderPlaced = this.fillAsksAndPlaceBid(
+        orderBook,
+        baseAsset,
+        quantity,
+        price,
+        userId,
+        side
+      );
+    } else {
+      orderPlaced = this.fillBidsAndPlaceAsk(
+        orderBook,
+        baseAsset,
+        quantity,
+        price,
+        userId,
+        side
+      );
+    }
+
+    var { fills, orderId, executedQty } = orderPlaced;
+
+    this.updateFunds(
+      baseAsset,
+      quantity,
+      price,
+      userId,
+      fills.length ?? 0 > 1 ? fills[0].otherUserId : '',
+      side
+    );
+    return { fills, orderId, executedQty };
+  }
+
   fillAsksAndPlaceBid(
     orderBook: OrderBook,
-    message: any
-  ): { orderId: string; fills: any[] } {
+    baseAsset: string,
+    quantity: number,
+    price: number,
+    userId: string,
+    side: 'BUY' | 'ASK'
+  ): { orderId: string; fills: any[]; executedQty: number } {
     let fills: any[] = [];
     let filledQty = 0;
     const orderId = randomString();
@@ -108,102 +172,102 @@ export class Engine {
       (a: Order, b: Order) => a.price - b.price
     );
     for (let i = 0; i < orderBook.asks.length; ) {
-      const order = sortedAsks[i];
-      if (order.price <= message.data.price) {
-        let executedQty = Math.min(order.quantity, message.data.quantity);
-        filledQty += executedQty;
-        fills.push({
-          price: message.data.price,
-          quantity: executedQty,
-          otherUserId: order.userId,
-        });
-        order.quantity -= executedQty;
-        message.data.quantity -= executedQty;
+      if (quantity > 0) {
+        const order = sortedAsks[i];
+        if (order.price <= price) {
+          let executedQty = Math.min(order.quantity, quantity);
+          filledQty += executedQty;
+          fills.push({
+            price: price,
+            quantity: executedQty,
+            otherUserId: order.userId,
+          });
+          order.quantity -= executedQty;
+          quantity -= executedQty;
 
-        if (order.quantity == 0) {
-          orderBook.asks.splice(i, 1);
+          if (order.quantity == 0) {
+            orderBook.asks.splice(i, 1);
+          } else {
+            i++;
+          }
         } else {
-          i++;
+          break;
         }
       } else {
         break;
       }
     }
-    if (message.data.quantity > 0) {
-      orderBook.bids.push(
-        new Order(
-          orderId,
-          message.data.price,
-          message.data.quantity,
-          message.data.userId
-        )
-      );
-      const marketTotalOrders = this.reverseOrderBook[message.data.baseAsset];
+    if (quantity > 0) {
+      orderBook.bids.push(new Order(orderId, price, quantity, userId));
+      const marketTotalOrders = this.reverseOrderBook[baseAsset];
       if (marketTotalOrders) {
-        if (!marketTotalOrders[message.data.price]) {
-          marketTotalOrders[message.data.price] = message.data.quantity;
+        if (!marketTotalOrders[price]) {
+          marketTotalOrders[price] = quantity;
         } else {
-          marketTotalOrders[message.data.price] += message.data.quantity;
+          marketTotalOrders[price] += quantity;
         }
       } else {
-        this.reverseOrderBook[message.data.baseAsset] = {
-          [message.data.price]: message.data.quantity,
+        this.reverseOrderBook[baseAsset] = {
+          [price]: quantity,
         };
       }
     }
 
     return {
       orderId,
+      executedQty: filledQty,
       fills,
     };
   }
 
   fillBidsAndPlaceAsk(
     orderBook: OrderBook,
-    message: any
-  ): { orderId: string; fills: any[] } {
+    baseAsset: string,
+    quantity: number,
+    price: number,
+    userId: string,
+    side: 'BUY' | 'ASK'
+  ): { orderId: string; fills: any[]; executedQty: number } {
     let fills: any[] = [];
     let filledQty = 0;
     const orderId = randomString();
     for (let i = 0; i < orderBook.bids.length; ) {
-      const sortedBids = orderBook.bids.sort(
-        (a: Order, b: Order) => b.price - a.price
-      );
-      const order = sortedBids[i];
-      if (order.price >= message.data.price) {
-        let executedQty = Math.min(order.quantity, message.data.quantity);
-        filledQty += executedQty;
-        fills.push({
-          price: message.data.price,
-          quantity: executedQty,
-          otherUserId: order.userId,
-        });
-        order.quantity -= executedQty;
-        message.data.quantity -= executedQty;
+      if (quantity > 0) {
+        const sortedBids = orderBook.bids.sort(
+          (a: Order, b: Order) => b.price - a.price
+        );
+        const order = sortedBids[i];
+        if (order.price >= price) {
+          let executedQty = Math.min(order.quantity, quantity);
+          filledQty += executedQty;
+          fills.push({
+            price: price,
+            quantity: executedQty,
+            otherUserId: order.userId,
+          });
+          order.quantity -= executedQty;
+          quantity -= executedQty;
 
-        if (order.quantity == 0) {
-          orderBook.bids.splice(i, 1);
+          if (order.quantity == 0) {
+            orderBook.bids.splice(i, 1);
+          } else {
+            i++;
+          }
         } else {
-          i++;
+          break;
         }
       } else {
         break;
       }
     }
 
-    if (message.data.quantity > 0) {
-      orderBook.asks.push(
-        new Order(
-          orderId,
-          message.data.price,
-          message.data.quantity,
-          message.data.userId
-        )
-      );
+    if (quantity > 0) {
+      orderBook.asks.push(new Order(orderId, price, quantity, userId));
     }
 
     return {
       orderId,
+      executedQty: filledQty,
       fills,
     };
   }
@@ -216,7 +280,6 @@ export class Engine {
     side: 'ASK' | 'BUY'
   ) {
     const userBalance = this.balances.get(userId);
-    console.log(userBalance, baseAsset);
     if (side == 'BUY') {
       if (
         userBalance &&
@@ -284,6 +347,32 @@ export class Engine {
       }
     }
     return false;
+  }
+
+  cancelOrder(orderId: string, market: string) {
+    const order = this.orderBooks.find((x) => x.ticker() == market);
+    if (order) {
+      const currentMarketBook = this.reverseOrderBook[market.split('_')[0]];
+
+      const cancelAsk = order.asks.find((x) => x.orderId == orderId);
+      if (cancelAsk) {
+        currentMarketBook[cancelAsk.price] -= cancelAsk.quantity;
+      }
+
+      const updatedAsks = order.asks.filter((x) => x.orderId != orderId);
+      order.asks = updatedAsks;
+
+      const cancelBid = order.bids.find((x) => x.orderId == orderId);
+      if (cancelBid) {
+        currentMarketBook[cancelBid.price] -= cancelBid.quantity;
+      }
+
+      const updatedBids = order.bids.filter((x) => x.orderId != orderId);
+      order.bids = updatedBids;
+      return true;
+    } else {
+      return false;
+    }
   }
 }
 

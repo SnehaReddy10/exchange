@@ -19,4 +19,8 @@ export class OrderBook {
       (this.baseAsset = baseAsset),
       (this.lastTradedId = lastTradedId);
   }
+
+  ticker() {
+    return `${this.baseAsset}_${this.quoteAsset}`;
+  }
 }

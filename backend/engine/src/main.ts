@@ -8,7 +8,7 @@ redisClient.connect();
 async function main() {
   const engine = Engine.getInstance();
   while (true) {
-    const message = await redisClient.brPop(MessageTopic.Orders, 0);
+    const message = await redisClient.brPop(MessageTopic.Order, 0);
     if (message) {
       engine.process(JSON.parse(message?.element ?? ''));
     }
